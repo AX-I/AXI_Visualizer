@@ -1,4 +1,4 @@
-# AXI_Visualizer
+# AXI Visualizer
 
 AXI Visualizer is a complete software 3D graphics pipeline and engine written with Python and OpenCL.
 
