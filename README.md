@@ -4,6 +4,8 @@ AXI Visualizer is a complete software 3D graphics pipeline and engine written wi
 
 It uses scanline rasterization kernels which can be run on the CPU or the GPU compute units.
 
+See a [full feature list](http://axi.x10.mx/Visualizer/Features.html) with some demo clips.
+
 Main dependencies are Numpy, Numexpr, PIL, and PyOpenCL.
 
 Currently the engine is used in AXI Animator, a simple and accessible rigging / skinning / posing tool.
