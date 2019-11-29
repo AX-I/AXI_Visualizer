@@ -42,31 +42,51 @@ __kernel void Tscale(__global float3 *XYZ, __constant float *O, const float S,
     }
 }
 
-__kernel void vertL(//__global float3 *XYZ,
+__kernel void vertL(__global float3 *XYZ,
                     __global float3 *VN,
-                    __global float *I,
-                    __constant float *LInt, __constant float3 *LDir, // Directional
-                    //__constant float *PInt, __constant float3 *PPos, // Point
-                    //__constant float *SInt, __constant float3 *SDir, __constant float3 *SPos,
+                    __global float3 *I,
+                    __constant float3 *LInt, __constant float3 *LDir, // Directional
+                    __constant float3 *PInt, __constant float3 *PPos, // Point
+                    __constant float3 *SInt, __constant float3 *SDir, __constant float3 *SPos,
                     const float ambLight,
-                    const int lenL, const int lenP) {
-    
+                    const char lenD, const short lenP, const int lenS,
+                    const int lenV) {
+
     // Block index
     int bx = get_group_id(0);
     int tx = get_local_id(0);
 
-    if ((bx * BLOCK_SIZE + tx) < lenP) {
+    if ((bx * BLOCK_SIZE + tx) < lenV) {
      int ci = bx * BLOCK_SIZE + tx;
-     //float3 x1 = XYZ[ci];
-     //float3 vp = (float3)(Vpos[0], Vpos[1], Vpos[2]);
-     //x1 -= vp; x2 -= vp; x3 -= vp;
-     
+     float3 x = XYZ[ci];
      float3 norm = VN[ci];
-     float light = 0.f;
-     for (char i = 0; i < lenL; i++) {
-       light += max(0.f, dot(norm, LDir[i])) * LInt[i];
+     float3 light = 0.f;
+     for (char i = 1; i < lenD; i++) {
+       //light += max(0.f, dot(norm, LDir[i])) * LInt[i];
+       light += max(0.f, dot(norm, LDir[i]) + 0.5f) * 0.66f * LInt[i];
+     }
+     for (short i = 0; i < lenP; i++) {
+       float3 pl = x - PPos[i];
+       if ((dot(norm, pl) > 0.f)) { // && (fast_length(pl) < 16.f)) {
+         light += dot(norm, fast_normalize(pl)) / (fast_length(pl)*fast_length(pl)) * PInt[i];
+       }
+     }
+     for (int i = 0; i < lenS; i++) {
+       float3 pl = x - SPos[i];
+       /*if ((dot(SDir[i], pl) > 0.f) && (dot(norm, pl) > 0.f)) { // && (fast_length(pl) < 16.f)) {
+         light += dot(norm, fast_normalize(pl)) * dot(fast_normalize(pl), SDir[i]) /
+                  (1.f + fast_length(pl)*fast_length(pl)) * SInt[i];
+       }*/
+       float3 dirx = SDir[i];
+       float angle = 0.9f;
+       if (dot(fast_normalize(pl), dirx) > angle) {
+         light += max(0.f, dot(norm, fast_normalize(pl)) * fast_length(pl) /
+                  (1.f + fast_length(pl)*fast_length(pl))) * SInt[i];
+       }
      }
      light = max(light, ambLight);
+     float ic = max(light.x, max(light.y, light.z));
+     
      I[ci] = light;
     }
 }
