@@ -11,3 +11,5 @@ Main dependencies are Numpy, Numexpr, PIL, and PyOpenCL.
 Currently the engine is used in AXI Animator, a simple and accessible rigging / skinning / posing tool.
 
 ![Orchestra of Legends](https://agentxindustries.neocities.org/Backgrounds/Visualizerbg4.png)
+
+The '3xxx.py' files are main scripts which can be directly run.
