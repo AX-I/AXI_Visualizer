@@ -13,3 +13,4 @@ Currently the engine is used in AXI Animator, a simple and accessible rigging / 
 ![Orchestra of Legends](https://agentxindustries.neocities.org/Backgrounds/Visualizerbg4.png)
 
 The '3xxx.py' files are main scripts which can be directly run.
+'AXI_Visualizer.py' can also be directly run.
