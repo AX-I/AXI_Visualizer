@@ -84,11 +84,13 @@ __kernel void draw(__global int *TO,
               float tz = 1 / ((1-t)*cz2 + t*cz1);
               if (F[wF * cy + ax] > tz) {
                 int tex1 = (int)(((1-t)*cu2 + t*cu1) * tz * (lenT-1));
-                tex1 = min(tex1, lenT-1);
+                tex1 = abs(tex1) & (lenT - 1);
                 int tex2 = (int)((lenT-1) * ((1-t)*cv2 + t*cv1) * tz);
-                tex2 = min(tex2, lenT-1);
+                tex2 = abs(tex2) & (lenT - 1);
                 tex2 *= lenT;
                 int tex = tex1 + tex2;
+                if ((tex > (lenT * lenT - 1)) || (tex < 0)) printf("t %d l %d \n", tex, lenT);
+                //if ((bx == 0) && (tx == 0)) printf("t %d l %d \n", tex, lenT);
                 if (TA[tex]) {
                   F[wF * cy + ax] = tz;
                 }
@@ -132,11 +134,13 @@ __kernel void draw(__global int *TO,
               float tz = 1 / ((1-t)*cz2 + t*cz1);
               if (F[wF * cy + ax] > tz) {
                 int tex1 = (int)(((1-t)*cu2 + t*cu1) * tz * (lenT-1));
-                tex1 = min(tex1, lenT-1);
+                tex1 = abs(tex1) & (lenT - 1);
                 int tex2 = (int)((lenT-1) * ((1-t)*cv2 + t*cv1) * tz);
-                tex2 = min(tex2, lenT-1);
+                tex2 = abs(tex2) & (lenT - 1);
                 tex2 *= lenT;
                 int tex = tex1 + tex2;
+                if ((tex > (lenT * lenT - 1)) || (tex < 0)) printf("t %d l %d \n", tex, lenT);
+                //if ((bx == 0) && (tx == 0)) printf("t %d l %d \n", tex, lenT);
                 if (TA[tex]) {
                   F[wF * cy + ax] = tz;
                 }

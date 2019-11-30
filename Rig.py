@@ -29,8 +29,8 @@ class Rig:
 
     def importPose(self, p, updateRoot=True):
         self.b0.importPose(p, updateRoot=updateRoot)
-    def exportPose(self):
-        return self.b0.exportPose()
+    def exportPose(self, p):
+        return self.b0.exportPose(p)
     def getTransform(self):
         return self.b0.getTransform()
 
@@ -73,22 +73,15 @@ class Bone:
         self.offset = np.array((*offset, 1), dtype="float")
 
         self.rotate(rot)
-        
-        self.isNew = False
 
     def exportRig(self, r=0):
         p = []
         for c in self.children:
             p.append(c.exportRig(r+1))
 
-        o = np.array(self.origin)
-##        b = self
-##        while b.parent is not None:
-##            o -= b.parent.origin
-##            b = b.parent
-        if not self.isNew:
-            if self.parent is not None:
-                o -= self.parent.origin
+        o = self.origin
+        if self.parent is not None:
+            o -= self.parent.origin
         d = {"origin":list([round(x,6) for x in o]),
              "boneNum":self.boneNum, "children":p}
         if r==0:
@@ -106,7 +99,7 @@ class Bone:
         return {"angle":[round(x, 6) for x in self.angles.tolist()], "children":p}
 
     def importPose(self, p, r=0, updateRoot=True):
-        self.angles = np.array(p["angle"], dtype="float")
+        self.angles = p["angle"]
         if updateRoot:
             self.rotate()
         if "children" not in p:
@@ -118,8 +111,6 @@ class Bone:
         self.children.append(child)
         child.parent = self
         child.origin += self.origin
-    def removeChild(self, i):
-        del self.children[i]
 
     def getPoints(self, p):
         """For drawing axes"""
@@ -150,7 +141,7 @@ class Bone:
             rr = self.angles
         else:
             self.angles = rr
-        self.angles = np.array(self.angles, dtype="float")
+        self.angles = np.array(self.angles)
         rotX = np.array([[1, 0, 0],
                          [0, cos(rr[0]), -sin(rr[0])],
                          [0, sin(rr[0]), cos(rr[0])]])

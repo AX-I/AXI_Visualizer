@@ -17,7 +17,13 @@ class CubeMap:
                 raise ValueError("Image is not w:h = 6:1!")
             self.m = m
             self.rawtexture = numpy.array(ti).astype("float")
-            self.rawtexture = self.rawtexture * self.rawtexture
+            ta = self.rawtexture
+            lum = 0.2626 * ta[:,:,0] + 0.6152 * ta[:,:,1] + 0.1222 * ta[:,:,2]
+            ta[lum > 253] *= 4
+            ta = ta*ta*(numpy.expand_dims(lum, 2)**(1/4)) / (4*8)
+            numpy.clip(ta, None, 256*256-1, ta)
+            self.rawtexture = ta
+            #self.rawtexture = self.rawtexture * self.rawtexture / 4
             
         elif type(tex) is numpy.ndarray:
             self.rawtexture = numpy.concatenate(tex, axis=1)

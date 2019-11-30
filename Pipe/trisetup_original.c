@@ -38,13 +38,6 @@ __kernel void setup(__global float3 *XYZ,
     if (all(dd > 0) && all(fabs(dx) < cAX) && all(fabs(dy) < cAY)) {
       yes = true;
     }
-    float3 n1 = VN[ci];
-    float3 n2 = VN[ci+1];
-    float3 n3 = VN[ci+2];
-    if ((dot(n1, x1) < -0.f) && (dot(n2, x2) < -0.f) && (dot(n3, x3) < -0.f)) {
-      yes = false;
-    }
-    
     if (yes) {
       dx = dx * -sScale + wF/2;
       dy = dy * sScale + hF/2;

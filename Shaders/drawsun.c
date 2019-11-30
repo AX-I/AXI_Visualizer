@@ -3,7 +3,7 @@
 __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort *Bo,
                       __global int *P, __global float *U, __global float *V,
                       __global ushort *TR, __global ushort *TG, __global ushort *TB,
-                      //__constant float *V,
+                      __constant float *LInt,
                       const int wF, const int hF,
                       const int lenP, const int lenT) {
 
@@ -19,6 +19,7 @@ __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort 
     int ci = (bx * BLOCK_SIZE + tx) * 3;
 
     //float3 sv = (float3)(V[0], V[1], V[2]);
+    float mr = LInt[0]; float mg = LInt[1]; float mb = LInt[2];
 
     int x1 = P[ti];
     int y1 = P[ti + 1];
@@ -98,12 +99,12 @@ __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort 
                 float texi1 = 1-texr1;
                 float texi2 = 1-texr2;
                 
-                Ro[wF * cy + ax] = (ushort)(texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
-                                   texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]);
-                Go[wF * cy + ax] = (ushort)(texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
-                                   texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]);
-                Bo[wF * cy + ax] = (ushort)(texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
-                                   texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]);
+                Ro[wF * cy + ax] = (ushort)(mr*(texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
+                                   texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]));
+                Go[wF * cy + ax] = (ushort)(mg*(texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
+                                   texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]));
+                Bo[wF * cy + ax] = (ushort)(mb*(texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
+                                   texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]));
             }
         }
         cx1 += slope1;
@@ -150,12 +151,13 @@ __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort 
                 float texi1 = 1-texr1;
                 float texi2 = 1-texr2;
                 
-                Ro[wF * cy + ax] = (ushort)(texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
-                                   texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]);
-                Go[wF * cy + ax] = (ushort)(texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
-                                   texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]);
-                Bo[wF * cy + ax] = (ushort)(texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
-                                   texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]);
+                                
+                Ro[wF * cy + ax] = (ushort)(mr*(texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
+                                   texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]));
+                Go[wF * cy + ax] = (ushort)(mg*(texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
+                                   texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]));
+                Bo[wF * cy + ax] = (ushort)(mb*(texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
+                                   texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]));
             }
         }
         cx1 -= slope1;

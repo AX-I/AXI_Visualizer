@@ -38,7 +38,7 @@ __kernel void setup(__global float3 *XYZ,
       int3 dix = convert_int3(dx);
       int3 diy = convert_int3(dy);
     float yes = false;
-    if (all(dd > 0) && all(dix >= 0) && all(dix < wF) && all(diy >= 0) && all(diy < hF)) {
+    if (all(dd > 0) && all(dix >= -120) && all(dix < (wF+120)) && all(diy >= -120) && all(diy < (hF+120))) {
     // && all(fabs(dx) < cAX) && all(fabs(dy) < cAY)) {
       yes = true;
     }

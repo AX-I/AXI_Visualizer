@@ -1,8 +1,10 @@
 // Perspective-correct bilinear texture drawing with smooth brightness, PCF shadow map,
 // and cubemap reflection with fresnel
-// Metallic
+// Non-metallic
 
 #define shDist 2
+#define maxattn 0.6f
+
 __kernel void drawTex(__global int *TO,
                       __global ushort *Ro, __global ushort *Go, __global ushort *Bo,
                       __global float *F, __global int2 *P, __global float *Z,
@@ -185,17 +187,14 @@ __kernel void drawTex(__global int *TO,
                 float3 norm = fast_normalize(((1-t)*cn2 + t*cn1) * tz);
                 float3 dirCol = max(0.f, dot(norm, LDir[0])) * LInt[0];
 
-                /*
+                
                 float Rout = (texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
                                    texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]) * (light * (dirCol.x + col.x) + (1-light) * col.x);
                 float Gout = (texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
                                    texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]) * (light * (dirCol.y + col.y) + (1-light) * col.y);
                 float Bout = (texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
                                    texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]) * (light * (dirCol.z + col.z) + (1-light) * col.z);
-                */
-                float Rout = TR[tex] / 2;
-                float Gout = TG[tex] / 2;
-                float Bout = TB[tex] / 2;
+                
                 
                 float3 pos = ((1-t)*cp2 + t*cp1) * tz - VP;
                 float td = dot(pos, norm);
@@ -230,15 +229,12 @@ __kernel void drawTex(__global int *TO,
                 texr2 -= tex2;
                 
                 tex = tex1 + 6*lenR*tex2;
-                float fr = 1 - max(0.f, dot(normalize(pos), norm)) * 0.5f;
+                float fr = 1 - max(0.f, dot(normalize(pos), norm)) * maxattn;
                 fr *= fr;// fr *= fr;
-                //Ro[wF * cy + ax] = convert_ushort_sat((1 - fr) * Rout + fr * RR[tex]);
-                //Go[wF * cy + ax] = convert_ushort_sat((1 - fr) * Gout + fr * RG[tex]);
-                //Bo[wF * cy + ax] = convert_ushort_sat((1 - fr) * Bout + fr * RB[tex]);
-                Ro[wF * cy + ax] = convert_ushort_sat(Rout / 4096.f * RR[tex]);
-                Go[wF * cy + ax] = convert_ushort_sat(Gout / 4096.f * RG[tex]);
-                Bo[wF * cy + ax] = convert_ushort_sat(Bout / 4096.f * RB[tex]);
-
+                Ro[wF * cy + ax] = convert_ushort_sat((1 - fr) * Rout + fr * RR[tex]);
+                Go[wF * cy + ax] = convert_ushort_sat((1 - fr) * Gout + fr * RG[tex]);
+                Bo[wF * cy + ax] = convert_ushort_sat((1 - fr) * Bout + fr * RB[tex]);
+                
               }
             }
         }
@@ -340,18 +336,13 @@ __kernel void drawTex(__global int *TO,
                 
                 float3 norm = fast_normalize(((1-t)*cn2 + t*cn1) * tz);
                 float3 dirCol = max(0.f, dot(norm, LDir[0])) * LInt[0];
-                /*
+                
                 float Rout = (texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
                                    texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]) * (light * (dirCol.x + col.x) + (1-light) * col.x);
                 float Gout = (texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
                                    texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]) * (light * (dirCol.y + col.y) + (1-light) * col.y);
                 float Bout = (texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
                                    texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]) * (light * (dirCol.z + col.z) + (1-light) * col.z);
-                */
-              
-                float Rout = TR[tex] / 2;
-                float Gout = TG[tex] / 2;
-                float Bout = TB[tex] / 2;
               
                 float3 pos = ((1-t)*cp2 + t*cp1) * tz - VP;
                 float td = dot(pos, norm);
@@ -386,15 +377,11 @@ __kernel void drawTex(__global int *TO,
                 texr2 -= tex2;
                 
                 tex = tex1 + 6*lenR*tex2;
-                float fr = 1 - max(0.f, dot(normalize(pos), norm)) * 0.5f;
+                float fr = 1 - max(0.f, dot(normalize(pos), norm)) * maxattn;
                 fr *= fr;// fr *= fr;
-                //Ro[wF * cy + ax] = convert_ushort_sat((1 - fr) * Rout + fr * RR[tex]);
-                //Go[wF * cy + ax] = convert_ushort_sat((1 - fr) * Gout + fr * RG[tex]);
-                //Bo[wF * cy + ax] = convert_ushort_sat((1 - fr) * Bout + fr * RB[tex]);
-                Ro[wF * cy + ax] = convert_ushort_sat(Rout / 4096.f * RR[tex]);
-                Go[wF * cy + ax] = convert_ushort_sat(Gout / 4096.f * RG[tex]);
-                Bo[wF * cy + ax] = convert_ushort_sat(Bout / 4096.f * RB[tex]);
-
+                Ro[wF * cy + ax] = convert_ushort_sat((1 - fr) * Rout + fr * RR[tex]);
+                Go[wF * cy + ax] = convert_ushort_sat((1 - fr) * Gout + fr * RG[tex]);
+                Bo[wF * cy + ax] = convert_ushort_sat((1 - fr) * Bout + fr * RB[tex]);
               }
             }
         }

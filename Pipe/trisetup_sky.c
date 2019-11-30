@@ -14,7 +14,6 @@ __kernel void setup(__global float3 *XYZ,
     int bx = get_group_id(0);
     int tx = get_local_id(0);
     
-    //if ((bx == 0) && (tx == 0)) printf("Trisetup \n");
     if (tx == 0) TN[bx] = 0;
     barrier(CLK_GLOBAL_MEM_FENCE);
 
@@ -24,8 +23,6 @@ __kernel void setup(__global float3 *XYZ,
     float3 x2 = XYZ[ci+1];
     float3 x3 = XYZ[ci+2];
     
-    float3 vp = (float3)(Vpos[0], Vpos[1], Vpos[2]);
-    x1 -= vp; x2 -= vp; x3 -= vp;
     float3 SVd = VV[0];
     float3 SVx = VV[1];
     float3 SVy = VV[2];

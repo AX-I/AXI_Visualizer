@@ -3,7 +3,6 @@
 __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort *Bo,
                       __global int *P, __global float *U, __global float *V,
                       __global ushort *TR, __global ushort *TG, __global ushort *TB,
-                      //__constant float *V,
                       const int wF, const int hF,
                       const int lenP, const int lenT) {
 
@@ -17,8 +16,6 @@ __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort 
 
     int ti = (bx * BLOCK_SIZE + tx) * 3 * 2;
     int ci = (bx * BLOCK_SIZE + tx) * 3;
-
-    //float3 sv = (float3)(V[0], V[1], V[2]);
 
     int x1 = P[ti];
     int y1 = P[ti + 1];
@@ -34,6 +31,8 @@ __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort 
     float v3 = V[ci+2];
     int ytemp; int xtemp;
     float ut; float vt;
+    
+    int side = (int)(min(u1, min(u2, u3)) * 6)+1;
 
     // bubble sort y1<y2<y3
     if (y1 > y2) {
@@ -80,21 +79,24 @@ __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort 
     for (int cy = y1; cy <= y2; cy++) {
         for (int ax = (int)cx2; ax <= (int)cx1; ax++) {
             if ((cy >= 0) && (cy < hF) && (ax >= 0) && (ax < wF)) {
+                // u is horizontal, v is vertical
+                // dims is 720 horizontal x 120 vertical
+                // after: lenT = 120; u,v <= 1
                 
                 float t = (ax-cx2)/(cx1-cx2);
                 t = max((float)0., min((float)1., t));
-                float texr1 = ((1-t)*cu2 + t*cu1) * lenT;
+                float texr1 = ((1-t)*cu2 + t*cu1) * (6*lenT);
                 int tex1 = (int)texr1;
                 texr1 -= tex1;
-                tex1 = min(tex1, lenT-1);
-                float texr2 = lenT * ((1-t)*cv2 + t*cv1);
+                tex1 = min(tex1, 6*lenT-1);
+                float texr2 = (lenT) * ((1-t)*cv2 + t*cv1);
                 int tex2 = (int)texr2;
                 texr2 -= tex2;
                 tex2 = min(tex2, lenT-1);
-                int tex = tex1 + lenT*tex2;
-                int tex10 = min(tex1+1, lenT-1) + lenT*tex2;
-                int tex01 = tex1 + lenT*min(tex2+1, lenT-1);
-                int tex11 = min(tex1+1, lenT-1) + lenT*min(tex2+1, lenT-1);
+                int tex = tex1 + 6*lenT*tex2;
+                int tex10 = min(tex1+1, side*lenT-1) + 6*lenT*tex2;
+                int tex01 = tex1 + 6*lenT*min(tex2+1, lenT-1);
+                int tex11 = min(tex1+1, side*lenT-1) + 6*lenT*min(tex2+1, lenT-1);
                 float texi1 = 1-texr1;
                 float texi2 = 1-texr2;
                 
@@ -135,18 +137,18 @@ __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort 
             if ((cy >= 0) && (cy < hF) && (ax >= 0) && (ax < wF)) {
                 float t = (ax-cx2)/(cx1-cx2);
                 t = max((float)0., min((float)1., t));
-                float texr1 = ((1-t)*cu2 + t*cu1) * (lenT);
+                float texr1 = ((1-t)*cu2 + t*cu1) * (6*lenT);
                 int tex1 = (int)texr1;
                 texr1 -= tex1;
-                tex1 = min(tex1, lenT-1);
+                tex1 = min(tex1, 6*lenT-1);
                 float texr2 = (lenT) * ((1-t)*cv2 + t*cv1);
                 int tex2 = (int)texr2;
                 texr2 -= tex2;
                 tex2 = min(tex2, lenT-1);
-                int tex = tex1 + lenT*tex2;
-                int tex10 = min(tex1+1, lenT-1) + lenT*tex2;
-                int tex01 = tex1 + lenT*min(tex2+1, lenT-1);
-                int tex11 = min(tex1+1, lenT-1) + lenT*min(tex2+1, lenT-1);
+                int tex = tex1 + 6*lenT*tex2;
+                int tex10 = min(tex1+1, side*lenT-1) + 6*lenT*tex2;
+                int tex01 = tex1 + 6*lenT*min(tex2+1, lenT-1);
+                int tex11 = min(tex1+1, side*lenT-1) + 6*lenT*min(tex2+1, lenT-1);
                 float texi1 = 1-texr1;
                 float texi2 = 1-texr2;
                 

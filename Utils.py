@@ -5,19 +5,6 @@ from math import sin, cos, pi, asin, acos, log2
 import numexpr as ne
 import numpy as np
 
-
-def rotMat(rr):
-    rotX = np.array([[1, 0, 0],
-                        [0, cos(rr[0]), -sin(rr[0])],
-                        [0, sin(rr[0]), cos(rr[0])]])
-    rotY = np.array([[cos(rr[1]), 0, sin(rr[1])],
-                        [0, 1, 0],
-                        [-sin(rr[1]), 0, cos(rr[1])]])
-    rotZ = np.array([[cos(rr[2]), -sin(rr[2]), 0],
-                        [sin(rr[2]), cos(rr[2]), 0],
-                        [0, 0, 1]])
-    return rotX @ rotZ @ rotY
-
 def viewVec(a, b):
     v = np.array([sin(a) * cos(b),
                   -sin(b),

@@ -3,7 +3,6 @@
 __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort *Bo,
                       __global int *P, __global float *U, __global float *V,
                       __global ushort *TR, __global ushort *TG, __global ushort *TB,
-                      //__constant float *V,
                       const int wF, const int hF,
                       const int lenP, const int lenT) {
 
@@ -17,8 +16,6 @@ __kernel void drawSky(__global ushort *Ro, __global ushort *Go, __global ushort 
 
     int ti = (bx * BLOCK_SIZE + tx) * 3 * 2;
     int ci = (bx * BLOCK_SIZE + tx) * 3;
-
-    //float3 sv = (float3)(V[0], V[1], V[2]);
 
     int x1 = P[ti];
     int y1 = P[ti + 1];

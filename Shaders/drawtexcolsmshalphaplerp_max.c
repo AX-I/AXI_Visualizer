@@ -1,7 +1,8 @@
 // Perspective-correct bilinear texture drawing with smooth brightness and PCF shadow map
+// Alpha test
 // Per-pixel lighting on one directional light
 
-#define shDist 1
+#define shDist 2
 
 __kernel void drawTex(__global int *TO,
                       __global ushort *Ro, __global ushort *Go, __global ushort *Bo,
@@ -13,15 +14,20 @@ __kernel void drawTex(__global int *TO,
                       __constant float3 *LInt, __constant float3 *LDir,
                       __global float *SD, const int wS, const float sScale,
                       __constant float3 *SV, __constant float *SPos,
+                      __global float *SD2, const int wS2, const float sScale2,
+                      __constant float3 *SV2, __constant float *SPos2,
                       const float ambLight,
                       __global ushort *TR, __global ushort *TG, __global ushort *TB,
+                      __global bool *TA,
                       const char useShadow,
                       const int wF, const int hF, const int lenP, const int lenT) {
 
+    // Block index
     int bx = get_group_id(0);
     int tx = get_local_id(0);
-    
+
     if ((bx * BLOCK_SIZE + tx) < lenP) {
+
     int txd = TO[bx*BLOCK_SIZE + tx];
     int ci = txd * 3;
 
@@ -29,7 +35,7 @@ __kernel void drawTex(__global int *TO,
     float z1 = Z[ci];
     float z2 = Z[ci+1];
     float z3 = Z[ci+2];
-    
+
     int2 xy1 = P[ci];
     int2 xy2 = P[ci+1];
     int2 xy3 = P[ci+2];
@@ -45,14 +51,14 @@ __kernel void drawTex(__global int *TO,
     float3 pos1 = PXYZ[ci] * z1;
     float3 pos2 = PXYZ[ci+1] * z2;
     float3 pos3 = PXYZ[ci+2] * z3;
-    
+
     int xtemp; int ytemp;
     float2 uvt; float3 lt; float zt;
     float3 post; float3 nt;
-    
+
     int x1 = xy1.x; int x2 = xy2.x; int x3 = xy3.x;
     int y1 = xy1.y; int y2 = xy2.y; int y3 = xy3.y;
-    
+
     // bubble sort y1<y2<y3
     if (y1 > y2) {
       ytemp = y1; xtemp = x1; uvt = uv1; lt = l1; nt = n1; post = pos1; zt = z1;
@@ -69,17 +75,22 @@ __kernel void drawTex(__global int *TO,
       y1 = y2; x1 = x2; uv1 = uv2; l1 = l2; n1 = n2; pos1 = pos2; z1 = z2;
       y2 = ytemp; x2 = xtemp; uv2 = uvt; l2 = lt; n2 = nt; pos2 = post; z2 = zt;
     }
-    
+
     if ((y1 < hF) && (y3 >= 0)) {
-    
+
     float3 SP = (float3)(SPos[0], SPos[1], SPos[2]);
     float3 SVd = SV[0];
     float3 SVx = SV[1];
     float3 SVy = SV[2];
-    
+
+    float3 SP2 = (float3)(SPos2[0], SPos2[1], SPos2[2]);
+    float3 SVd2 = SV2[0];
+    float3 SVx2 = SV2[1];
+    float3 SVy2 = SV2[2];
+
     float u1 = uv1.x; float u2 = uv2.x; float u3 = uv3.x;
     float v1 = uv1.y; float v2 = uv2.y; float v3 = uv3.y;
-    
+
     float ydiff1 = (float)(y2 - y1)/(float)(y3-y1);
     int x4 = (int)(x1 + ydiff1 * (x3 - x1));
     int y4 = y2;
@@ -92,7 +103,7 @@ __kernel void drawTex(__global int *TO,
 
     // fill bottom flat triangle
     ydiff1 = 1 / (float)(y2-y1);
-    
+
     float slope1 = (float)(x2-x1) * ydiff1;
     float slopeu1 = (u2-u1) * ydiff1;
     float slopev1 = (v2-v1) * ydiff1;
@@ -100,7 +111,7 @@ __kernel void drawTex(__global int *TO,
     float3 slopen1 = (n2-n1) * ydiff1;
     float3 slopepos1 = (pos2-pos1) * ydiff1;
     float slopez1 = (z2-z1) * ydiff1;
-    
+
     ydiff1 = 1 / (float)(y4-y1);
     float slope2 = (float)(x4-x1) * ydiff1;
     float slopeu2 = (u4-u1) * ydiff1;
@@ -116,7 +127,7 @@ __kernel void drawTex(__global int *TO,
     float3 cn1 = n1; float3 cn2 = n1;
     float3 cp1 = pos1; float3 cp2 = pos1;
     float cz1 = z1; float cz2 = z1;
-    
+
     float slopet; float ut; float vt;
     if (slope1 < slope2) {
       slopet = slope1; ut = slopeu1; vt = slopev1; lt = slopel1; nt = slopen1; post = slopepos1; zt = slopez1;
@@ -124,7 +135,7 @@ __kernel void drawTex(__global int *TO,
         slopel1 = slopel2; slopepos1 = slopepos2; slopez1 = slopez2;
       slope2 = slopet; slopeu2 = ut; slopev2 = vt; slopel2 = lt; slopen2 = nt; slopepos2 = post; slopez2 = zt;
     }
-    
+
     for (int cy = y1; cy <= y2; cy++) {
         for (int ax = (int)cx2; ax <= (int)cx1; ax++) {
             if ((cy >= 0) && (cy < hF) && (ax >= 0) && (ax < wF)) {
@@ -132,8 +143,7 @@ __kernel void drawTex(__global int *TO,
               t = max((float)0., min((float)1., t));
               float tz = 1 / ((1-t)*cz2 + t*cz1);
               if (F[wF * cy + ax] > tz) {
-                F[wF * cy + ax] = tz;
-                
+
                 float texr1 = ((1-t)*cu2 + t*cu1) * tz * lenT;
                 int tex1 = (int)texr1;
                 texr1 -= tex1;
@@ -142,46 +152,62 @@ __kernel void drawTex(__global int *TO,
                 int tex2 = (int)texr2;
                 texr2 -= tex2;
                 tex2 = abs(tex2) & (lenT - 1);
-                
+
                 int tex = tex1 + lenT*tex2;
                 int tex10 = min(tex1+1, lenT-1) + lenT*tex2;
                 int tex01 = tex1 + lenT*min(tex2+1, lenT-1);
                 int tex11 = min(tex1+1, lenT-1) + lenT*min(tex2+1, lenT-1);
                 float texi1 = 1-texr1;
                 float texi2 = 1-texr2;
-                
-                float light;
-                if (useShadow) {
-                  float3 pos = ((1-t)*cp2 + t*cp1) * tz - SP;
-                
-                  float depth = dot(pos, SVd);
-                  int sx = (int)(dot(pos, SVx) * sScale) + wS;
-                  int sy = (int)(dot(pos, SVy) * -sScale) + wS;
-                  int shadow = 0;
-                  if ((sx >= shDist) && (sx < 2*wS-shDist) &&
-                      (sy >= shDist) && (sy < 2*wS-shDist)) {
-                    if (SD[2*wS * sy + sx] < depth) shadow += 1;
-                    if (SD[2*wS * (sy+shDist) + sx] < depth) shadow += 1;
-                    if (SD[2*wS * (sy-shDist) + sx] < depth) shadow += 1;
-                    if (SD[2*wS * sy + (sx+shDist)] < depth) shadow += 1;
-                    if (SD[2*wS * sy + (sx-shDist)] < depth) shadow += 1;
-                  }
-                
-                  light = shadow * ambLight + (5-shadow);
-                  light *= 0.2;
-                } else light = 1; //light = ((1-t)*cl2 + t*cl1);
-                float3 col = ((1-t)*cl2 + t*cl1);
-                
-                float3 norm = fast_normalize(((1-t)*cn2 + t*cn1) * tz);
-                float3 dirCol = max(0.f, dot(norm, LDir[0])) * LInt[0];
-                
-                Ro[wF * cy + ax] = convert_ushort((texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
+                float ca = texi1*texi2*(float)TA[tex] + texr1*texi2*(float)TA[tex10] +
+                           texi1*texr2*(float)TA[tex01] + texr1*texr2*(float)TA[tex11];
+
+                if (ca > 0.5) {
+                    F[wF * cy + ax] = tz;
+
+                    float light;
+                    if (useShadow) {
+                    float3 pos = ((1-t)*cp2 + t*cp1) * tz - SP;
+                float depth = dot(pos, SVd);
+                int sx = (int)(dot(pos, SVx) * sScale) + wS;
+                int sy = (int)(dot(pos, SVy) * -sScale) + wS;
+                int shadow = 0;
+                if ((sx >= shDist) && (sx < 2*wS-shDist) &&
+                    (sy >= shDist) && (sy < 2*wS-shDist)) {
+                  if (SD[2*wS * sy + sx] < depth) shadow += 1;
+                  if (SD[2*wS * (sy+shDist) + sx] < depth) shadow += 1;
+                  if (SD[2*wS * (sy-shDist) + sx] < depth) shadow += 1;
+                  if (SD[2*wS * sy + (sx+shDist)] < depth) shadow += 1;
+                  if (SD[2*wS * sy + (sx-shDist)] < depth) shadow += 1;
+                }
+                pos = ((1-t)*cp2 + t*cp1) * tz - SP2;
+                depth = dot(pos, SVd2);
+                sx = (int)(dot(pos, SVx2) * sScale2) + wS2;
+                sy = (int)(dot(pos, SVy2) * -sScale2) + wS2;
+                if ((sx >= shDist) && (sx < 2*wS2-shDist) &&
+                    (sy >= shDist) && (sy < 2*wS2-shDist)) {
+                  if (SD2[2*wS2 * sy + sx] < depth) shadow += 1;
+                  if (SD2[2*wS2 * (sy+shDist) + sx] < depth) shadow += 1;
+                  if (SD2[2*wS2 * (sy-shDist) + sx] < depth) shadow += 1;
+                  if (SD2[2*wS2 * sy + (sx+shDist)] < depth) shadow += 1;
+                  if (SD2[2*wS2 * sy + (sx-shDist)] < depth) shadow += 1;
+                }
+                shadow = min(5, shadow);
+                light = shadow * ambLight + (5-shadow);
+                light *= 0.2f;
+                    } else light = 1;
+                    float3 col =  ((1-t)*cl2 + t*cl1);
+
+                    float3 norm = fast_normalize(((1-t)*cn2 + t*cn1) * tz);
+                    float3 dirCol = max(0.f, dot(norm, LDir[0])) * LInt[0];
+
+                    Ro[wF * cy + ax] = convert_ushort((texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
                                    texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]) * (light * (dirCol.x + col.x) + (1-light) * col.x));
                 Go[wF * cy + ax] = convert_ushort((texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
                                    texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]) * (light * (dirCol.y + col.y) + (1-light) * col.y));
                 Bo[wF * cy + ax] = convert_ushort((texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
                                    texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]) * (light * (dirCol.z + col.z) + (1-light) * col.z));
-
+                }
               }
             }
         }
@@ -200,7 +226,7 @@ __kernel void drawTex(__global int *TO,
         cz1 += slopez1;
         cz2 += slopez2;
     }
-    
+
     // fill top flat triangle
     ydiff1 = 1 / (float)(y3-y2);
     slope1 = (x3-x2) * ydiff1;
@@ -210,7 +236,7 @@ __kernel void drawTex(__global int *TO,
     slopen1 = (n3-n2) * ydiff1;
     slopez1 = (z3-z2) * ydiff1;
     slopepos1 = (pos3-pos2) * ydiff1;
-    
+
     ydiff1 = 1 / (float)(y3-y4);
     slope2 = (x3-x4) * ydiff1;
     slopeu2 = (u3-u4) * ydiff1;
@@ -219,80 +245,93 @@ __kernel void drawTex(__global int *TO,
     slopen2 = (n3-n4) * ydiff1;
     slopez2 = (z3-z4) * ydiff1;
     slopepos2 = (pos3-pos4) * ydiff1;
-    
+
     cx1 = x3; cx2 = x3;
     cu1 = u3; cv1 = v3; cl1 = l3;
     cu2 = u3; cv2 = v3; cl2 = l3;
     cn1 = n3; cn2 = n3;
     cp1 = pos3; cp2 = pos3;
     cz1 = z3; cz2 = z3;
-    
+
     if (slope1 < slope2) {
       slopet = slope1; ut = slopeu1; vt = slopev1; lt = slopel1; nt = slopen1; post = slopepos1; zt = slopez1;
       slope1 = slope2; slopeu1 = slopeu2; slopev1 = slopev2;  slopen1 = slopen2;
         slopel1 = slopel2; slopepos1 = slopepos2; slopez1 = slopez2;
       slope2 = slopet; slopeu2 = ut; slopev2 = vt; slopel2 = lt; slopen2 = nt; slopepos2 = post; slopez2 = zt;
     }
-    
+
     for (int cy = y3; cy >= y2; cy--) {
         for (int ax = (int)cx1; ax <= (int)cx2; ax++) {
             if ((cy >= 0) && (cy < hF) && (ax >= 0) && (ax < wF)) {
-            //if ((cy | (hF - cy) | ax | (wF - ax)) >= 0) {
               float t = (ax-cx2)/(cx1-cx2);
               t = max((float)0., min((float)1., t));
               float tz = 1 / ((1-t)*cz2 + t*cz1);
               if (F[wF * cy + ax] > tz) {
-                F[wF * cy + ax] = tz;
-                
+
                 float texr1 = ((1-t)*cu2 + t*cu1) * tz * lenT;
                 int tex1 = (int)texr1;
                 texr1 -= tex1;
-                //tex1 = abs(tex1) % lenT;
                 tex1 = abs(tex1) & (lenT - 1);
                 float texr2 = lenT * ((1-t)*cv2 + t*cv1) * tz;
                 int tex2 = (int)texr2;
                 texr2 -= tex2;
-                //tex2 = abs(tex2) % lenT;
                 tex2 = abs(tex2) & (lenT - 1);
-                
+
                 int tex = tex1 + lenT*tex2;
                 int tex10 = min(tex1+1, lenT-1) + lenT*tex2;
                 int tex01 = tex1 + lenT*min(tex2+1, lenT-1);
                 int tex11 = min(tex1+1, lenT-1) + lenT*min(tex2+1, lenT-1);
                 float texi1 = 1-texr1;
                 float texi2 = 1-texr2;
-                
-                float light;
-                if (useShadow) {
-                  float3 pos = ((1-t)*cp2 + t*cp1) * tz - SP;
-                
-                  float depth = dot(pos, SVd);
-                  int sx = (int)(dot(pos, SVx) * sScale) + wS;
-                  int sy = (int)(dot(pos, SVy) * -sScale) + wS;
-                  int shadow = 0;
-                  if ((sx >= shDist) && (sx < 2*wS-shDist) &&
-                      (sy >= shDist) && (sy < 2*wS-shDist)) {
-                    if (SD[2*wS * sy + sx] < depth) shadow += 1;
-                    if (SD[2*wS * (sy+shDist) + sx] < depth) shadow += 1;
-                    if (SD[2*wS * (sy-shDist) + sx] < depth) shadow += 1;
-                    if (SD[2*wS * sy + (sx+shDist)] < depth) shadow += 1;
-                    if (SD[2*wS * sy + (sx-shDist)] < depth) shadow += 1;
-                  }
-                
-                  light = shadow * ambLight + (5-shadow);
-                  light *= 0.2;
-                } else light = 1; //light = ((1-t)*cl2 + t*cl1);
-                float3 col = ((1-t)*cl2 + t*cl1);
-                
-                float3 norm = fast_normalize(((1-t)*cn2 + t*cn1) * tz);
-                float3 dirCol = max(0.f, dot(norm, LDir[0])) * LInt[0];
-                
-                Ro[wF * cy + ax] = convert_ushort((texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
+                float ca = texi1*texi2*(float)TA[tex] + texr1*texi2*(float)TA[tex10] +
+                           texi1*texr2*(float)TA[tex01] + texr1*texr2*(float)TA[tex11];
+
+                if (ca > 0.5) {
+                    F[wF * cy + ax] = tz;
+
+                    float light;
+                    if (useShadow) {
+                    float3 pos = ((1-t)*cp2 + t*cp1) * tz - SP;
+                float depth = dot(pos, SVd);
+                int sx = (int)(dot(pos, SVx) * sScale) + wS;
+                int sy = (int)(dot(pos, SVy) * -sScale) + wS;
+                int shadow = 0;
+                if ((sx >= shDist) && (sx < 2*wS-shDist) &&
+                    (sy >= shDist) && (sy < 2*wS-shDist)) {
+                        if (SD[2*wS * sy + sx] < depth) shadow += 1;
+                  if (SD[2*wS * (sy+shDist) + sx] < depth) shadow += 1;
+                  if (SD[2*wS * (sy-shDist) + sx] < depth) shadow += 1;
+                  if (SD[2*wS * sy + (sx+shDist)] < depth) shadow += 1;
+                  if (SD[2*wS * sy + (sx-shDist)] < depth) shadow += 1;
+                }
+                pos = ((1-t)*cp2 + t*cp1) * tz - SP2;
+                depth = dot(pos, SVd2);
+                sx = (int)(dot(pos, SVx2) * sScale2) + wS2;
+                sy = (int)(dot(pos, SVy2) * -sScale2) + wS2;
+                if ((sx >= shDist) && (sx < 2*wS2-shDist) &&
+                    (sy >= shDist) && (sy < 2*wS2-shDist)) {
+                  if (SD2[2*wS2 * sy + sx] < depth) shadow += 1;
+                  if (SD2[2*wS2 * (sy+shDist) + sx] < depth) shadow += 1;
+                  if (SD2[2*wS2 * (sy-shDist) + sx] < depth) shadow += 1;
+                  if (SD2[2*wS2 * sy + (sx+shDist)] < depth) shadow += 1;
+                  if (SD2[2*wS2 * sy + (sx-shDist)] < depth) shadow += 1;
+                }
+                shadow = min(5, shadow);
+                light = shadow * ambLight + (5-shadow);
+                light *= 0.2f;
+                    } else light = 1;
+                    float3 col =  ((1-t)*cl2 + t*cl1);
+
+                    float3 norm = fast_normalize(((1-t)*cn2 + t*cn1) * tz);
+                    float3 dirCol = max(0.f, dot(norm, LDir[0])) * LInt[0];
+
+                    Ro[wF * cy + ax] = convert_ushort((texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
                                    texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]) * (light * (dirCol.x + col.x) + (1-light) * col.x));
                 Go[wF * cy + ax] = convert_ushort((texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
                                    texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]) * (light * (dirCol.y + col.y) + (1-light) * col.y));
                 Bo[wF * cy + ax] = convert_ushort((texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
                                    texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]) * (light * (dirCol.z + col.z) + (1-light) * col.z));
+                }
               }
             }
         }

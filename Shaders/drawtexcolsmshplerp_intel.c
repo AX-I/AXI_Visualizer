@@ -1,8 +1,8 @@
-// Perspective-correct bilinear texture drawing with smooth brightness, PCF shadow map,
-// and cubemap reflection with fresnel
-// Metallic
+// Perspective-correct bilinear texture drawing with smooth brightness and PCF shadow map
+// Per-pixel lighting on one directional light
 
 #define shDist 2
+
 __kernel void drawTex(__global int *TO,
                       __global ushort *Ro, __global ushort *Go, __global ushort *Bo,
                       __global float *F, __global int2 *P, __global float *Z,
@@ -14,21 +14,14 @@ __kernel void drawTex(__global int *TO,
                       __global float *SD, const int wS, const float sScale,
                       __constant float3 *SV, __constant float *SPos,
                       const float ambLight,
-                      __constant ushort *TR, __constant ushort *TG, __constant ushort *TB,
+                      __global ushort *TR, __global ushort *TG, __global ushort *TB,
                       const char useShadow,
-                      __constant float *VPos,
-                      __global ushort *RR, __global ushort *RG, __global ushort *RB,
-                      const float n12,
-                      const int wF, const int hF, const int lenP,
-                      const int lenT, const int dimR) {
+                      const int wF, const int hF, const int lenP, const int lenT) {
 
-    // Block index
     int bx = get_group_id(0);
     int tx = get_local_id(0);
     
     if ((bx * BLOCK_SIZE + tx) < lenP) {
-
-    // Index
     int txd = TO[bx*BLOCK_SIZE + tx];
     int ci = txd * 3;
 
@@ -49,16 +42,14 @@ __kernel void drawTex(__global int *TO,
     float3 n1 = N[ci] * z1;
     float3 n2 = N[ci+1] * z2;
     float3 n3 = N[ci+2] * z3;
-    
     float3 pos1 = PXYZ[ci] * z1;
     float3 pos2 = PXYZ[ci+1] * z2;
     float3 pos3 = PXYZ[ci+2] * z3;
     
-    int ytemp; int xtemp;
-    float2 uvt; float3 lt;
-    float3 nt; float zt;
-    float3 post;
-
+    int xtemp; int ytemp;
+    float2 uvt; float3 lt; float zt;
+    float3 post; float3 nt;
+    
     int x1 = xy1.x; int x2 = xy2.x; int x3 = xy3.x;
     int y1 = xy1.y; int y2 = xy2.y; int y3 = xy3.y;
     
@@ -78,10 +69,8 @@ __kernel void drawTex(__global int *TO,
       y1 = y2; x1 = x2; uv1 = uv2; l1 = l2; n1 = n2; pos1 = pos2; z1 = z2;
       y2 = ytemp; x2 = xtemp; uv2 = uvt; l2 = lt; n2 = nt; pos2 = post; z2 = zt;
     }
-
-    if ((y1 < hF) && (y3 >= 0)) {
     
-    float3 VP = (float3)(VPos[0], VPos[1], VPos[2]);
+    if ((y1 < hF) && (y3 >= 0)) {
     
     float3 SP = (float3)(SPos[0], SPos[1], SPos[2]);
     float3 SVd = SV[0];
@@ -103,6 +92,7 @@ __kernel void drawTex(__global int *TO,
 
     // fill bottom flat triangle
     ydiff1 = 1 / (float)(y2-y1);
+    
     float slope1 = (float)(x2-x1) * ydiff1;
     float slopeu1 = (u2-u1) * ydiff1;
     float slopev1 = (v2-v1) * ydiff1;
@@ -130,7 +120,8 @@ __kernel void drawTex(__global int *TO,
     float slopet; float ut; float vt;
     if (slope1 < slope2) {
       slopet = slope1; ut = slopeu1; vt = slopev1; lt = slopel1; nt = slopen1; post = slopepos1; zt = slopez1;
-      slope1 = slope2; slopeu1 = slopeu2; slopev1 = slopev2; slopel1 = slopel2; slopen1 = slopen2; slopepos1 = slopepos2; slopez1 = slopez2;
+      slope1 = slope2; slopeu1 = slopeu2; slopev1 = slopev2;  slopen1 = slopen2;
+        slopel1 = slopel2; slopepos1 = slopepos2; slopez1 = slopez2;
       slope2 = slopet; slopeu2 = ut; slopev2 = vt; slopel2 = lt; slopen2 = nt; slopepos2 = post; slopez2 = zt;
     }
     
@@ -138,7 +129,7 @@ __kernel void drawTex(__global int *TO,
         for (int ax = (int)cx2; ax <= (int)cx1; ax++) {
             if ((cy >= 0) && (cy < hF) && (ax >= 0) && (ax < wF)) {
               float t = (ax-cx2)/(cx1-cx2);
-              t = max(0.f, min(1.f, t));
+              t = max((float)0., min((float)1., t));
               float tz = 1 / ((1-t)*cz2 + t*cz1);
               if (F[wF * cy + ax] > tz) {
                 F[wF * cy + ax] = tz;
@@ -146,11 +137,11 @@ __kernel void drawTex(__global int *TO,
                 float texr1 = ((1-t)*cu2 + t*cu1) * tz * lenT;
                 int tex1 = (int)texr1;
                 texr1 -= tex1;
-                tex1 = abs(tex1) % lenT;
+                tex1 = abs(tex1) & (lenT - 1);
                 float texr2 = lenT * ((1-t)*cv2 + t*cv1) * tz;
                 int tex2 = (int)texr2;
                 texr2 -= tex2;
-                tex2 = abs(tex2) % lenT;
+                tex2 = abs(tex2) & (lenT - 1);
                 
                 int tex = tex1 + lenT*tex2;
                 int tex10 = min(tex1+1, lenT-1) + lenT*tex2;
@@ -178,66 +169,18 @@ __kernel void drawTex(__global int *TO,
                 
                   light = shadow * ambLight + (5-shadow);
                   light *= 0.2;
-                //} else light = ((1-t)*cl2 + t*cl1);
-                } else light = 1;
+                } else light = 1; //light = ((1-t)*cl2 + t*cl1);
                 float3 col = ((1-t)*cl2 + t*cl1);
                 
                 float3 norm = fast_normalize(((1-t)*cn2 + t*cn1) * tz);
                 float3 dirCol = max(0.f, dot(norm, LDir[0])) * LInt[0];
-
-                /*
-                float Rout = (texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
-                                   texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]) * (light * (dirCol.x + col.x) + (1-light) * col.x);
-                float Gout = (texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
-                                   texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]) * (light * (dirCol.y + col.y) + (1-light) * col.y);
-                float Bout = (texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
-                                   texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]) * (light * (dirCol.z + col.z) + (1-light) * col.z);
-                */
-                float Rout = TR[tex] / 2;
-                float Gout = TG[tex] / 2;
-                float Bout = TB[tex] / 2;
                 
-                float3 pos = ((1-t)*cp2 + t*cp1) * tz - VP;
-                float td = dot(pos, norm);
-                float3 refl = pos - 2*td*norm;
-                int face;
-                float m = max(fabs(refl.x), max(fabs(refl.y), fabs(refl.z)));
-                float2 rxy;
-                if (m == fabs(refl.x)) {
-                  face = (refl.x > 0) ? 0 : 3;
-                  rxy = (refl.zy / refl.x + 1) * dimR;
-                }
-                if (m == fabs(refl.y)) {
-                  face = (refl.y > 0) ? 1 : 4;
-                  rxy = (refl.xz / refl.y + 1) * dimR;
-                }
-                if (m == fabs(refl.z)) {
-                  face = (refl.z > 0) ? 2 : 5;
-                  rxy = (refl.yx / refl.z + 1) * dimR;
-                }
-                rxy = min(rxy, (float2)(dimR*2-1));
-                
-                int lenR = 2*dimR;
-                int side = face+1;
-                
-                texr1 = rxy.x;
-                tex1 = (int)texr1;
-                texr1 -= tex1;
-                tex1 += face*lenR;
-                
-                texr2 = rxy.y;
-                tex2 = (int)texr2;
-                texr2 -= tex2;
-                
-                tex = tex1 + 6*lenR*tex2;
-                float fr = 1 - max(0.f, dot(normalize(pos), norm)) * 0.5f;
-                fr *= fr;// fr *= fr;
-                //Ro[wF * cy + ax] = convert_ushort_sat((1 - fr) * Rout + fr * RR[tex]);
-                //Go[wF * cy + ax] = convert_ushort_sat((1 - fr) * Gout + fr * RG[tex]);
-                //Bo[wF * cy + ax] = convert_ushort_sat((1 - fr) * Bout + fr * RB[tex]);
-                Ro[wF * cy + ax] = convert_ushort_sat(Rout / 4096.f * RR[tex]);
-                Go[wF * cy + ax] = convert_ushort_sat(Gout / 4096.f * RG[tex]);
-                Bo[wF * cy + ax] = convert_ushort_sat(Bout / 4096.f * RB[tex]);
+                Ro[wF * cy + ax] = convert_ushort((texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
+                                   texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]) * (light * (dirCol.x + col.x) + (1-light) * col.x));
+                Go[wF * cy + ax] = convert_ushort((texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
+                                   texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]) * (light * (dirCol.y + col.y) + (1-light) * col.y));
+                Bo[wF * cy + ax] = convert_ushort((texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
+                                   texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]) * (light * (dirCol.z + col.z) + (1-light) * col.z));
 
               }
             }
@@ -257,7 +200,7 @@ __kernel void drawTex(__global int *TO,
         cz1 += slopez1;
         cz2 += slopez2;
     }
-
+    
     // fill top flat triangle
     ydiff1 = 1 / (float)(y3-y2);
     slope1 = (x3-x2) * ydiff1;
@@ -286,13 +229,15 @@ __kernel void drawTex(__global int *TO,
     
     if (slope1 < slope2) {
       slopet = slope1; ut = slopeu1; vt = slopev1; lt = slopel1; nt = slopen1; post = slopepos1; zt = slopez1;
-      slope1 = slope2; slopeu1 = slopeu2; slopev1 = slopev2; slopel1 = slopel2; slopen1 = slopen2; slopepos1 = slopepos2; slopez1 = slopez2;
+      slope1 = slope2; slopeu1 = slopeu2; slopev1 = slopev2;  slopen1 = slopen2;
+        slopel1 = slopel2; slopepos1 = slopepos2; slopez1 = slopez2;
       slope2 = slopet; slopeu2 = ut; slopev2 = vt; slopel2 = lt; slopen2 = nt; slopepos2 = post; slopez2 = zt;
     }
     
     for (int cy = y3; cy >= y2; cy--) {
         for (int ax = (int)cx1; ax <= (int)cx2; ax++) {
             if ((cy >= 0) && (cy < hF) && (ax >= 0) && (ax < wF)) {
+            //if ((cy | (hF - cy) | ax | (wF - ax)) >= 0) {
               float t = (ax-cx2)/(cx1-cx2);
               t = max((float)0., min((float)1., t));
               float tz = 1 / ((1-t)*cz2 + t*cz1);
@@ -302,11 +247,13 @@ __kernel void drawTex(__global int *TO,
                 float texr1 = ((1-t)*cu2 + t*cu1) * tz * lenT;
                 int tex1 = (int)texr1;
                 texr1 -= tex1;
-                tex1 = abs(tex1) % lenT;
+                //tex1 = abs(tex1) % lenT;
+                tex1 = abs(tex1) & (lenT - 1);
                 float texr2 = lenT * ((1-t)*cv2 + t*cv1) * tz;
                 int tex2 = (int)texr2;
                 texr2 -= tex2;
-                tex2 = abs(tex2) % lenT;
+                //tex2 = abs(tex2) % lenT;
+                tex2 = abs(tex2) & (lenT - 1);
                 
                 int tex = tex1 + lenT*tex2;
                 int tex10 = min(tex1+1, lenT-1) + lenT*tex2;
@@ -334,67 +281,18 @@ __kernel void drawTex(__global int *TO,
                 
                   light = shadow * ambLight + (5-shadow);
                   light *= 0.2;
-                //} else light = ((1-t)*cl2 + t*cl1);
-                } else light = 1;
+                } else light = 1; //light = ((1-t)*cl2 + t*cl1);
                 float3 col = ((1-t)*cl2 + t*cl1);
                 
                 float3 norm = fast_normalize(((1-t)*cn2 + t*cn1) * tz);
                 float3 dirCol = max(0.f, dot(norm, LDir[0])) * LInt[0];
-                /*
-                float Rout = (texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
-                                   texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]) * (light * (dirCol.x + col.x) + (1-light) * col.x);
-                float Gout = (texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
-                                   texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]) * (light * (dirCol.y + col.y) + (1-light) * col.y);
-                float Bout = (texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
-                                   texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]) * (light * (dirCol.z + col.z) + (1-light) * col.z);
-                */
-              
-                float Rout = TR[tex] / 2;
-                float Gout = TG[tex] / 2;
-                float Bout = TB[tex] / 2;
-              
-                float3 pos = ((1-t)*cp2 + t*cp1) * tz - VP;
-                float td = dot(pos, norm);
-                float3 refl = pos - 2*td*norm;
-                int face;
-                float m = max(fabs(refl.x), max(fabs(refl.y), fabs(refl.z)));
-                float2 rxy;
-                if (m == fabs(refl.x)) {
-                  face = (refl.x > 0) ? 0 : 3;
-                  rxy = (refl.zy / refl.x + 1) * dimR;
-                }
-                if (m == fabs(refl.y)) {
-                  face = (refl.y > 0) ? 1 : 4;
-                  rxy = (refl.xz / refl.y + 1) * dimR;
-                }
-                if (m == fabs(refl.z)) {
-                  face = (refl.z > 0) ? 2 : 5;
-                  rxy = (refl.yx / refl.z + 1) * dimR;
-                }
-                rxy = min(rxy, (float2)(dimR*2-1));
                 
-                int lenR = 2*dimR;
-                int side = face+1;
-                
-                texr1 = rxy.x;
-                tex1 = (int)texr1;
-                texr1 -= tex1;
-                tex1 += face*lenR;
-                
-                texr2 = rxy.y;
-                tex2 = (int)texr2;
-                texr2 -= tex2;
-                
-                tex = tex1 + 6*lenR*tex2;
-                float fr = 1 - max(0.f, dot(normalize(pos), norm)) * 0.5f;
-                fr *= fr;// fr *= fr;
-                //Ro[wF * cy + ax] = convert_ushort_sat((1 - fr) * Rout + fr * RR[tex]);
-                //Go[wF * cy + ax] = convert_ushort_sat((1 - fr) * Gout + fr * RG[tex]);
-                //Bo[wF * cy + ax] = convert_ushort_sat((1 - fr) * Bout + fr * RB[tex]);
-                Ro[wF * cy + ax] = convert_ushort_sat(Rout / 4096.f * RR[tex]);
-                Go[wF * cy + ax] = convert_ushort_sat(Gout / 4096.f * RG[tex]);
-                Bo[wF * cy + ax] = convert_ushort_sat(Bout / 4096.f * RB[tex]);
-
+                Ro[wF * cy + ax] = convert_ushort((texi1*texi2*TR[tex] + texr1*texi2*TR[tex10] +
+                                   texi1*texr2*TR[tex01] + texr1*texr2*TR[tex11]) * (light * (dirCol.x + col.x) + (1-light) * col.x));
+                Go[wF * cy + ax] = convert_ushort((texi1*texi2*TG[tex] + texr1*texi2*TG[tex10] +
+                                   texi1*texr2*TG[tex01] + texr1*texr2*TG[tex11]) * (light * (dirCol.y + col.y) + (1-light) * col.y));
+                Bo[wF * cy + ax] = convert_ushort((texi1*texi2*TB[tex] + texr1*texi2*TB[tex10] +
+                                   texi1*texr2*TB[tex01] + texr1*texr2*TB[tex11]) * (light * (dirCol.z + col.z) + (1-light) * col.z));
               }
             }
         }

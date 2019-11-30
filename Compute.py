@@ -2,13 +2,11 @@
 # Backend process
 
 """
-Currently working on hot loading, gui tools, complete package
+Currently working on reintegrating particle systems
 
 General:
-- landscape editing / interactivity
-- lightmaps, per-object lighting
-- procedural sky
-- volumetric light & shadow
+- procedural sky & clouds
+- volumetric light & shadow (postprocess acceptable)
 - physics integration
 
 - brushes / procedural placement
@@ -16,32 +14,59 @@ General:
 - billboards
 - line renderer
 - full UI
-- profiling
 """
 
 import multiprocessing as mp
 from queue import Empty, Full
 
-from math import sin, cos, pi
+from math import sin, cos, pi, ceil
 import numpy as np
 import numexpr as ne
 import time
 from Utils import *
-import Ops3 as Ops
+import Ops
 
 import Visualizer as VS
 
-from TexObjects import TexSkyBox
+from TexObjects import TexSkyBox, TexSkySphere, TexSkyHemiSphere, Sun
 from Cubemap import CubeMap
 from VertObjects import VertSphere, VertModel, VertTerrain, VertPlane, VertWater
 
 import sys, os
 from PIL import Image
+import json
+
+def getTexture(fn):
+    ti = Image.open(fn).convert("RGB")
+    if ti.size[0] != ti.size[1]:
+        raise ValueError("Texture is not square!")
+    if (ti.size[0] & (ti.size[0] - 1)) != 0:
+        #print("Texture is not a power of 2, resizing up.")
+        n = 2**ceil(log2(ti.size[0]))
+        ti = ti.resize((n,n))
+    ta = np.array(ti).astype("float")
+    ta *= 64 * 4
+    np.clip(ta, None, 256*256-1, ta)
+    return np.array(ta.astype("uint16").reshape((-1,3)))
+
+def getTexture1(fn):
+    """keep 2d"""
+    ti = Image.open(fn).convert("RGB")
+    if ti.size[0] != ti.size[1]:
+        raise ValueError("Texture is not square!")
+    if (ti.size[0] & (ti.size[0] - 1)) != 0:
+        #print("Texture is not a power of 2, resizing up.")
+        n = 2**ceil(log2(ti.size[0]))
+        ti = ti.resize((n,n))
+    ta = np.array(ti).astype("float")
+    ta *= 64 * 4
+    np.clip(ta, None, 256*256-1, ta)
+    return np.array(ta.astype("uint16"))
 
 class ThreeDBackend:
     def __init__(self, width, height,
                  scale=600, fovx=None,
-                 downSample=1):
+                 downSample=1, record=None):
         pipe = rec = mp.Queue(3)
         
         self.evtQ = mp.Queue(64)
@@ -65,10 +90,10 @@ class ThreeDBackend:
         self.vertObjects = []
 
         self.vtNames = {}
-        self.vertPoints = []
-        self.vertNorms = []
-        self.vertU = []
-        self.vertV = []
+        self.vertpoints = []
+        self.vertnorms = []
+        self.vertu = []
+        self.vertv = []
         self.vtextures = []
 
         self.vertBones = []
@@ -86,6 +111,17 @@ class ThreeDBackend:
         self.skyU = []
         self.skyV = []
         self.skyTex = None
+        self.sunPoints = []; self.sunAvgPos = []
+        self.sunU = []; self.sunV = []
+        self.skTexn = {}
+        self.skyHemiLight = [0.1,0.2,0.4]
+
+        self.useOpSM = False
+
+        self.recVideo = False
+
+        self.particleSystems = []
+        self.psClouds = []
         
         self.W2 = int(self.W/2)
         self.H2 = int(self.H/2)
@@ -115,16 +151,12 @@ class ThreeDBackend:
         self.pointLights = []
         self.spotLights = []
         self.shadowCams = []
-        self.ambLight = 0.1
+        self.ambLight = 0.2
 
-        self.drawCross = False
         self.drawAxes = True
         self.axPoints = np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]],
                                  dtype="float")*0.25
         self.baseAxPoints = np.array(self.axPoints)
-
-        self.drawLines = False
-        self.linePoints = np.array([])
         
         self.timfps = np.zeros(12)
         self.numfps = 0
@@ -133,33 +165,45 @@ class ThreeDBackend:
         self.selecting = False
         self.genNewBones = False
 
-        self.guiType = None
-
         if not os.path.isdir("Screenshots"):
             os.mkdir("Screenshots")
+
+        if record == "rec":
+            self.recvEvts = []
+        elif record == "play":
+            with open("evt.txt") as f:
+                self.recvEvts = json.loads(f.read())
+            self.evtNum = 0
+        self.record = record
 
     def start(self):
         self.createObjects()
 
-        self.vertPoints = [np.array(i) for i in self.vertPoints]
-        self.vertNorms = [np.array(i) for i in self.vertNorms]
-        self.vertU = [np.array(i) for i in self.vertU]
-        self.vertV = [np.array(i) for i in self.vertV]
+        self.vertPoints = [np.array(i) for i in self.vertpoints]
+        self.vertNorms = [np.array(i) for i in self.vertnorms]
+        self.vertU = [np.array(i) for i in self.vertu]
+        self.vertV = [np.array(i) for i in self.vertv]
         self.vertLight = [np.ones((i.shape[0], 3)) for i in self.vertPoints]
+        
+        del self.vertpoints, self.vertnorms, self.vertu, self.vertv
         
         self.skyPoints = np.array(self.skyPoints)
         self.skyAvgPos = np.array(self.skyAvgPos).T
-        self.skyU = np.array(self.skyU) / 6
+        self.skyU = np.array(self.skyU)
         self.skyV = np.array(self.skyV)
         self.nWS = self.skyAvgPos.shape[1]
-        
-        #Luv = len(self.vertU)
-        Luv = 64
-        
-        self.draw = Ops.CLDraw(self.nWS//2, self.skyTex.shape[0],
-                               Luv, self.W, self.H)
 
-        #self.draw.ambLight = np.float32(self.ambLight)
+        self.sunPoints = np.array(self.sunPoints)
+        self.sunAvgPos = np.array(self.sunAvgPos).T
+        self.sunU = np.array(self.sunU)
+        self.sunV = np.array(self.sunV)
+        
+        maxuv = max([i.shape[0] for i in self.vertU])
+        Luv = len(self.vertU)
+        pmax = max([ps.N for ps in self.particleSystems]) if len(self.particleSystems) > 0 else 1
+        
+        self.draw = Ops.CLDraw(int(self.nWS/1.5), self.skyTex.shape[0],
+                               Luv, self.W, self.H, pmax)
 
         self.draw.setScaleCull(self.scale, self.cullAngleX, self.cullAngleY)
 
@@ -197,42 +241,22 @@ class ThreeDBackend:
         for i in range(len(self.vertBones)):
             if len(self.vertBones[i]) > 0:
                 self.draw.addBoneWeights(i, self.vertBones[i])
+
+        for ps in self.particleSystems:
+            if ps.tex is not None:
+                self.draw.setPSTex(getTexture(ps.tex), ps.tex)
+
+        d = self.directionalLights[0]
+        self.draw.setPrimaryLight(np.array([d["i"]]), np.array([viewVec(*d["dir"])]))
         
         bargs = (self.recP, self.evtQ, self.infQ,
                  self.W, self.H, self.mouseSensitivity,
-                 self.downSample, self.guiType)
+                 self.downSample, self.recVideo)
         self.frontend = mp.Process(target=VS.runGUI, args=bargs)
 
         self.frontend.start()
 
         self.customizeFrontend()
-
-    def addVertObject(self, objClass, *args, **kwargs):
-        thing = objClass(self, *args, **kwargs)
-        self.estWedges += thing.estWedges
-        self.vertObjects.append(thing)
-        return True
-    
-    def insertObject(self, objClass, *args, **kwargs):
-        thing = objClass(self, *args, **kwargs, late=1) #, newTexName=1)
-        self.vertObjects.append(thing)
-
-    def createInserted(self, ctexn):
-        for i in ctexn:
-            thing = self.vertObjects[i]
-            thing.created(False)
-            self.vertLight.append(np.ones((self.vertPoints[i].shape[0], 3)))
-            tex = self.vtextures[i]
-            self.draw.addTextureGroup(
-                self.vertPoints[i].reshape((-1,3)),
-                np.stack((self.vertU[i], self.vertV[i]), axis=2).reshape((-1,3,2)),
-                self.vertNorms[i].reshape((-1,3)),
-                tex[:,:,0], tex[:,:,1], tex[:,:,2])
-
-            if thing.useAlpha:
-                self.draw.addTexAlpha(self.texAlphas[thing.useAlpha-1])
-
-        self.shadowObjects()
 
     def updateRig(self, rig, ct, name, offset=0):
         bt = rig.b0.getTransform()
@@ -268,9 +292,20 @@ class ThreeDBackend:
         self.estWedges += thing.estWedges
         self.vertObjects.append(thing)
         return True
+    def addParticleSystem(self, ps, isCloud=False):
+        ps.setup()
+        self.particleSystems.append(ps)
+        self.psClouds.append(isCloud)
+    
+    def addSkyTex(self, n, t):
+        self.skTexn = t
         
     def render(self):
         self.renderProfile(1)
+
+        result = self.draw.getFrame()
+        rgb = np.stack(result[:3], axis=2)
+        self.zb = result[3]
         
         self.renderProfile(2)
         
@@ -279,44 +314,69 @@ class ThreeDBackend:
         self.draw.setPos(self.vc)
         self.draw.setVM(self.vMat)
         
-        if len(self.skyPoints) > 0:
-            skVisible = (self.vv @ self.skyAvgPos) > self.cullAngle
-            
+        skVisible = (self.vv @ self.skyAvgPos) > self.cullAngle
+        if skVisible.any():
             tempSP = np.concatenate(self.skyPoints[skVisible], axis=0)
             tempU = np.concatenate(self.skyU[skVisible], axis=0)
             tempV = np.concatenate(self.skyV[skVisible], axis=0)
             skyproj = self.skyProject(tempSP)
 
             self.draw.skydraw(skyproj, tempU, tempV)
+
+        if self.sunPoints.shape[0] > 0:
+            skVisible = (self.vv @ self.sunAvgPos) > self.cullAngle
+            if skVisible.any():
+                tempSP = np.concatenate(self.sunPoints[skVisible], axis=0)
+                tempU = np.concatenate(self.sunU[skVisible], axis=0)
+                tempV = np.concatenate(self.sunV[skVisible], axis=0)
+                skyproj = self.skyProject(tempSP)
+
+                self.draw.skydraw1(skyproj, tempU, tempV,
+                                   "s", self.skTexn[:,:,0], self.skTexn[:,:,1], self.skTexn[:,:,2])
+
         
         self.renderProfile(3)
         
         self.draw.clearZBuffer()
 
         self.renderProfile(4)
-        if len(self.shadowCams) == 1:
-            s = [0,0]
-        elif len(self.shadowCams) == 2:
-            s = [0,1]
+        #if len(self.shadowCams) == 1:
+        #    s = [0,0]
+        #elif len(self.shadowCams) == 2:
+        #    s = [0,1]
+        #s = [0, "c"]
+        s = [0,1]
         self.draw.drawAll(self.texUseAlpha, self.texShadow,
-                          self.texMip, self.texRefl, shadowIds=s)
+                          self.texMip, self.texRefl, shadowIds=s, useOpacitySM=self.useOpSM)
         
         self.renderProfile(5)
-        
+
+        cc = []
+        for i in range(len(self.particleSystems)):
+            ps = self.particleSystems[i]
+            pv = (ps.pos - self.pos) / np.linalg.norm((ps.pos - self.pos))
+            if (pv @ self.vv) > (self.cullAngle - 0.1):
+                cc.append((ps, self.psClouds[i]))
+
+        cc = sorted(cc, key=lambda a: np.linalg.norm(a[0].pos - self.pos), reverse=True)
+
+        for i in range(len(cc)):
+            ps = cc[i][0]
+            if cc[i][1]:
+                self.draw.drawPSClouds("c", ps.pc, ps.opacity, ps.size, ps.tex,
+                                       ps.pos, ps.randPos, self.skyHemiLight)
+            elif ps.tex is not None:
+                self.draw.drawPSTex(ps.pc, ps.color, ps.opacity, ps.size, ps.tex)
+            else:
+                self.draw.drawPS(ps.pc, ps.color, ps.opacity, ps.size)
+
+        self.renderProfile(6)
+
         a = None
         if self.drawAxes:
             if (((self.axPoints - self.pos) @ self.vv) > 0).all():
                 a = self.projectPoints(self.axPoints).astype("int")
-
-        b = None
-        if self.drawLines:
-            vp = ((self.linePoints - self.pos) @ self.vv) > 0
-            for i in range(len(vp)//2):
-                if not (vp[2*i] & vp[2*i+1]): vp[2*i] = False; vp[2*i+1] = False
-            visLP = self.linePoints[vp]
-            b = self.projectPoints(visLP).astype("int")
-
-        self.renderProfile(6)
+        
         self.renderProfile(7)
 
         self.postProcess()
@@ -324,14 +384,10 @@ class ThreeDBackend:
         self.renderProfile(8)
         #aa = Image.fromarray((rgb>>8).astype("uint8"), "RGB")
         #aa.save("test.png")
-
-        result = self.draw.getFrame()
-        self.rgb = np.stack(result[:3], axis=2)
-        self.zb = result[3]
         
         self.renderProfile(9)
         
-        return [self.rgb, a, self.selecting, self.drawCross, b]
+        return [rgb, a, self.selecting]
 
     def projectPoints(self, xyzn):
         dxy = (xyzn - self.pos) @ self.vMat.T
@@ -346,10 +402,29 @@ class ThreeDBackend:
         xy2d = np.stack((x2d, y2d), axis=1)
         return xy2d
         
-    def simpleShaderVert(self):
-        lightI = np.array([d["i"] for d in self.directionalLights])
-        lightD = np.array([viewVec(*d["dir"]) for d in self.directionalLights])
-        self.draw.vertLight(lightI, lightD)
+    def simpleShaderVert(self, mask=None, updateLights=True):
+        if mask is None:
+            mask = [True] * len(self.vertU)
+        dirI = np.array([d["i"] for d in self.directionalLights])
+        dirD = np.array([viewVec(*d["dir"]) for d in self.directionalLights])
+        if updateLights:
+            if len(self.pointLights) == 0:
+                pointI = 1
+            else:
+                pointI = np.array([p["i"] for p in self.pointLights])
+            pointP = np.array([p["pos"] for p in self.pointLights])
+
+            if len(self.spotLights) == 0:
+                spotI = 1
+            else:
+                spotI = np.array([p["i"] for p in self.spotLights])
+            spotD = np.array([p["vec"] for p in self.spotLights])
+            spotP = np.array([p["pos"] for p in self.spotLights])
+            
+            self.draw.vertLight(mask, dirI, dirD, pointI, pointP,
+                                spotI, spotD, spotP)
+        else:
+            self.draw.vertLight(mask, dirI, dirD)
            
     def shadowObjects(self):
         sobj = np.full((len(self.vertU),), False)
@@ -362,8 +437,9 @@ class ThreeDBackend:
     def setupShadowCams(self):
         for i in range(len(self.shadowCams)):
             s = self.shadowCams[i]
+            g = "gi" in s
             self.draw.addShadowMap(i, s["size"], s["scale"],
-                                   self.ambLight)
+                                   self.ambLight, g)
 
     def updateShadowCam(self, i):
         s = self.shadowCams[i]
@@ -470,13 +546,11 @@ class ThreeDBackend:
                 self.panning = False
 
             self.frameUpdate()
-            self.vv = self.viewVec()
-            
             self.renderProfile(0)
             
-            if self.pendingShader:
-                self.simpleShaderVert()
-                self.pendingShader = False
+            #if self.pendingShader:
+            #    self.simpleShaderVert()
+            #    self.pendingShader = False
             
             r = self.render()
             data = ("render", np.array(r, dtype="object"))
@@ -485,10 +559,27 @@ class ThreeDBackend:
             except Full:
                 self.full += 1
             self.renderProfile(10)
+
+            if self.record == "rec":
+                self.recvEvts.append(("F", self.frameNum))
+
+            if not self.record == "play":
+                while not self.evtQ.empty():
+                    self.processEvent()
             
-            while not self.evtQ.empty():
-                self.processEvent()
-                    
+            if self.record == "play":
+                a = True
+                while a:
+                    if self.recvEvts[self.evtNum] is None:
+                        self.doQuit = True
+                        a = False
+                    elif self.recvEvts[self.evtNum][0] == "F":
+                        if self.recvEvts[self.evtNum][1] > self.frameNum:
+                            a = False
+                    else:
+                        self.processEvent(self.recvEvts[self.evtNum])
+                    self.evtNum += 1
+            
             self.renderProfile(11)
 
             self.frameNum += 1
@@ -504,15 +595,28 @@ class ThreeDBackend:
         except (Full, BrokenPipeError):
             pass
 
-    def processEvent(self):
-        try:
-            action = self.evtQ.get_nowait()
-        except Empty:
-            self.empty += 1
+    def processEvent(self, e=None):
+        if e is None:
+            try:
+                action = self.evtQ.get_nowait()
+            except Empty:
+                self.empty += 1
+            else:
+                if action is None:
+                    self.doQuit = True
+                elif action[0] == "event":
+                    self.doEvent(action)
+                elif action[0] == "eventk":
+                    self.moveKey(action[1])
+                elif action[0] == "eventp":
+                    self.pan(action[1])
+                elif action[0] == "select":
+                    self.cSelect(*action[1])
+                elif action in self.handles:
+                    self.handles[action]()
         else:
-            if action is None:
-                self.doQuit = True
-            elif action[0] == "event":
+            action = e
+            if action[0] == "event":
                 self.doEvent(action)
             elif action[0] == "eventk":
                 self.moveKey(action[1])
@@ -522,6 +626,9 @@ class ThreeDBackend:
                 self.cSelect(*action[1])
             elif action in self.handles:
                 self.handles[action]()
+
+        if self.record == "rec":
+            self.recvEvts.append(action)
 
     def finish(self):
         try:
@@ -545,6 +652,9 @@ class ThreeDBackend:
         self.frontend.join()
         time.sleep(0.5)
         print("\nclosed frontend")
+        if self.record == "rec":
+            with open("evt.txt", "w") as f:
+                f.write(json.dumps(self.recvEvts))
 
     def changeTitle(self, t):
         self.P.put(("title", str(t)))
