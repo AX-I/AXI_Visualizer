@@ -75,16 +75,14 @@ class Bone:
         self.rotate(rot)
 
     def exportRig(self, r=0):
-        p = []
-        for c in self.children:
-            p.append(c.exportRig(r+1))
+        p = [c.exportRig(r+1) for c in self.children]
 
         o = self.origin
         if self.parent is not None:
             o -= self.parent.origin
         d = {"origin":list([round(x,6) for x in o]),
              "boneNum":self.boneNum, "children":p}
-        if r==0:
+        if r == 0:
             d["N"] = self.N
         return d
 
@@ -92,10 +90,7 @@ class Bone:
         if len(self.children) == 0:
             return {"angle":[round(x, 6) for x in self.angles.tolist()]}
         
-        p = []
-        for c in self.children:
-            p.append(c.exportPose())
-
+        p = [c.exportPose() for c in self.children]
         return {"angle":[round(x, 6) for x in self.angles.tolist()], "children":p}
 
     def importPose(self, p, r=0, updateRoot=True):
@@ -114,33 +109,28 @@ class Bone:
 
     def getPoints(self, p):
         """For drawing axes"""
-        t = self.tp(np.identity(4))
+        t = self.TM
         p = p @ t[:3,:3] + t[3,:3]
         return p
 
-    def tp(self, t):
-        t = t @ self.transMat
-        if self.parent is not None:
-            t = self.parent.tp(t)
-        return t
-
     def getTransform(self):
-        b = np.empty((4*self.N,4))
+        b = np.empty((4*self.N,4), dtype="float")
         self.trans(b)
         return b
 
     def trans(self, bt):
+        self.TM = self.transMat
+        if self.parent is not None:
+            self.TM = self.TM @ self.parent.TM
+        sn = self.boneNum - self.numOffset
+        bt[4*sn:4*sn+4] = self.TM
+        
         for c in self.children:
             c.trans(bt)
-        t = self.tp(np.identity(4))
-        sn = self.boneNum - self.numOffset
-        bt[4*sn:4*sn+4] = t
 
     def rotate(self, rr=None):
-        if rr is None:
-            rr = self.angles
-        else:
-            self.angles = rr
+        if rr is None: rr = self.angles
+        else: self.angles = rr
         self.angles = np.array(self.angles)
         rotX = np.array([[1, 0, 0],
                          [0, cos(rr[0]), -sin(rr[0])],
