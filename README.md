@@ -1,5 +1,7 @@
 # AXI Visualizer
 
+This branch is for the next generation Hierarchical Tiled Scanline rasterization algorithm. It should run much more efficiently on modern GPUs. Hierarchical Tiled Barycentric rasterization is commonly used in software rasterizers (ex. cuRE, CUDARaster), but combining the tiled aspect with scanline rendering has not been attempted before.
+
 AXI Visualizer is a complete software 3D graphics pipeline and engine written with Python and OpenCL.
 
 It uses scanline rasterization kernels which can be run on the CPU or the GPU compute units.
