@@ -2,12 +2,9 @@
 # Backend process
 
 """
-Currently working on reintegrating particle systems
-
 General:
 - procedural sky & clouds
 - volumetric light & shadow (postprocess acceptable)
-- physics integration
 
 - brushes / procedural placement
 - auto LOD
@@ -119,7 +116,12 @@ class ThreeDBackend:
         self.useOpSM = False
 
         self.recVideo = False
-
+        
+        self.buffer = np.zeros((self.H, self.W, 3), dtype="float")
+        self.nFrames = 0
+        self.tacc = False
+        self.dsNum = -1000
+        
         self.particleSystems = []
         self.psClouds = []
         
@@ -175,6 +177,19 @@ class ThreeDBackend:
                 self.recvEvts = json.loads(f.read())
             self.evtNum = 0
         self.record = record
+        
+    def setFOV(self, fovx, scale=None):
+        if fovx is not None:
+            self.scale = self.W2 / np.tan(fovx*pi/360)
+        else:
+            self.scale = scale
+        self.cullAngle = self.scale / np.sqrt(self.scale**2 + self.W2**2 + self.H2**2) * 0.85
+        self.cullAngleX = self.W2 / self.scale + 2
+        self.cullAngleY = self.H2 / self.scale + 2
+        self.fovX = np.arctan(self.W2 / self.scale) * 360/pi
+        self.fovY = np.arctan(self.H2 / self.scale) * 360/pi
+        
+        self.draw.setScaleCull(self.scale, self.cullAngleX, self.cullAngleY)
 
     def start(self):
         self.createObjects()
@@ -257,6 +272,21 @@ class ThreeDBackend:
         self.frontend.start()
 
         self.customizeFrontend()
+        
+    def enableDOF(self, dofR=24, rad=0.2, di=4):
+        self.bindKey("<F5>", self.dofScreenshot)
+        self.dofRad = rad
+        ps = []
+        for y in range(-dofR, dofR, di):
+            for x in range(int(-sqrt(dofR**2 - y**2)), int(sqrt(dofR**2 - y**2)), di):
+                ps.append((x,y))
+        self.dofPos = np.array(ps) * self.dofRad / dofR
+        print("DOF samples:", len(ps))
+    def dofScreenshot(self):
+        self.ipos = self.pos
+        self.dofTarget = self.pos + self.vv * self.zb[self.H//2, self.W//2]
+        self.dsNum = self.frameNum
+        self.tacc = True
 
     def updateRig(self, rig, ct, name, offset=0):
         bt = rig.b0.getTransform()
@@ -384,6 +414,10 @@ class ThreeDBackend:
         self.renderProfile(8)
         #aa = Image.fromarray((rgb>>8).astype("uint8"), "RGB")
         #aa.save("test.png")
+        
+        if self.tacc:
+            self.buffer += self.rgb*self.rgb
+            self.nFrames += 1
         
         self.renderProfile(9)
         
@@ -546,6 +580,23 @@ class ThreeDBackend:
                 self.panning = False
 
             self.frameUpdate()
+            
+            ps = self.dofPos
+            fn = self.frameNum - self.dsNum
+
+            if fn < len(ps):
+                self.pos = self.ipos + ps[fn][0]*self.vVhorz() + ps[fn][1]*self.vVvert()
+                d = self.dofTarget - self.pos
+                self.α = pi/2-atan2(*(d[2::-2]))
+                self.β = -atan2(d[1], sqrt(d[0]**2 + d[2]**2))
+            elif fn == len(ps):
+                self.tacc = False
+                ts = time.strftime("%Y %b %d %H-%M-%S", time.gmtime())
+                sn = "Screenshots/DOF_Screenshot " + ts + ".png"
+                Image.fromarray(np.sqrt(self.buffer / self.nFrames).astype("uint8")).save(sn)
+                self.buffer = np.zeros((self.H, self.W, 3), dtype="float")
+                self.nFrames = 0
+                
             self.renderProfile(0)
             
             #if self.pendingShader:
