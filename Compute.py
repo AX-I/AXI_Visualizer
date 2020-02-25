@@ -28,9 +28,10 @@ import Visualizer as VS
 from TexObjects import TexSkyBox, TexSkySphere, TexSkyHemiSphere, Sun
 from Cubemap import CubeMap
 from VertObjects import VertSphere, VertModel, VertTerrain, VertPlane, VertWater
+# from ParticleSystem import ParticleSystem, ContinuousParticleSystem, SpiralParticleSystem
 
 import sys, os
-from PIL import Image
+from PIL import Image, PngImagePlugin
 import json
 
 def getTexture(fn):
@@ -120,6 +121,7 @@ class ThreeDBackend:
         self.buffer = np.zeros((self.H, self.W, 3), dtype="float")
         self.nFrames = 0
         self.tacc = False
+        self.dofPos = np.array([0.,0,0])
         self.dsNum = -1000
         
         self.particleSystems = []
@@ -154,6 +156,7 @@ class ThreeDBackend:
         self.spotLights = []
         self.shadowCams = []
         self.ambLight = 0.2
+        self.shadowIds = [0,1]
 
         self.drawAxes = True
         self.axPoints = np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]],
@@ -166,6 +169,9 @@ class ThreeDBackend:
 
         self.selecting = False
         self.genNewBones = False
+        
+        self.exposure = 1
+        self.rgb = np.ones((self.H, self.W, 3))*100
 
         if not os.path.isdir("Screenshots"):
             os.mkdir("Screenshots")
@@ -282,6 +288,7 @@ class ThreeDBackend:
                 ps.append((x,y))
         self.dofPos = np.array(ps) * self.dofRad / dofR
         print("DOF samples:", len(ps))
+        
     def dofScreenshot(self):
         self.ipos = self.pos
         self.dofTarget = self.pos + self.vv * self.zb[self.H//2, self.W//2]
@@ -332,10 +339,6 @@ class ThreeDBackend:
         
     def render(self):
         self.renderProfile(1)
-
-        result = self.draw.getFrame()
-        rgb = np.stack(result[:3], axis=2)
-        self.zb = result[3]
         
         self.renderProfile(2)
         
@@ -408,16 +411,23 @@ class ThreeDBackend:
                 a = self.projectPoints(self.axPoints).astype("int")
         
         self.renderProfile(7)
-
+        
+        if self.tacc:
+            x = self.draw.getFrame()
+            x = np.stack(x[:3], axis=2)
+            self.buffer += x
+            self.nFrames += 1
+        
         self.postProcess()
         
         self.renderProfile(8)
+        
+        result = self.draw.getFrame()
+        rgb = np.stack(result[:3], axis=2)
+        self.zb = result[3]
+        
         #aa = Image.fromarray((rgb>>8).astype("uint8"), "RGB")
         #aa.save("test.png")
-        
-        if self.tacc:
-            self.buffer += self.rgb*self.rgb
-            self.nFrames += 1
         
         self.renderProfile(9)
         
@@ -547,6 +557,11 @@ class ThreeDBackend:
             -(dx * cos(self.α) - dy * sin(self.β) * sin(self.α)),
             dy * cos(self.β),
             dx * sin(self.α) + dy * sin(self.β) * cos(self.α)])
+        
+    def lookAt(self, target):
+        d = target - self.pos
+        self.α = pi/2-atan2(*(d[2::-2]))
+        self.β = -atan2(d[1], sqrt(d[0]**2 + d[2]**2))
 
     def runBackend(self):
         self.doQuit = False
@@ -593,15 +608,26 @@ class ThreeDBackend:
                 self.tacc = False
                 ts = time.strftime("%Y %b %d %H-%M-%S", time.gmtime())
                 sn = "Screenshots/DOF_Screenshot " + ts + ".png"
-                Image.fromarray(np.sqrt(self.buffer / self.nFrames).astype("uint8")).save(sn)
+
+                from Ops import cl, cq
+                r = (self.buffer / self.nFrames).astype("uint16")
+                cl.enqueue_copy(cq, self.draw.RO, np.array(r[:,:,0]))
+                cl.enqueue_copy(cq, self.draw.GO, np.array(r[:,:,1]))
+                cl.enqueue_copy(cq, self.draw.BO, np.array(r[:,:,2]))
+
+                self.postProcess()
+                r = np.stack(self.draw.getFrame()[:3], axis=2)
+                
+                i = PngImagePlugin.PngInfo()
+                i.add_text("targ", " ".join([str(round(x, 3)) for x in self.dofTarget]))
+                i.add_text("ipos", " ".join([str(round(x, 3)) for x in self.ipos]))
+
+                x = np.clip(r, None, 255)
+                Image.fromarray(x.astype("uint8")).save(sn, pnginfo=i)
                 self.buffer = np.zeros((self.H, self.W, 3), dtype="float")
                 self.nFrames = 0
                 
             self.renderProfile(0)
-            
-            #if self.pendingShader:
-            #    self.simpleShaderVert()
-            #    self.pendingShader = False
             
             r = self.render()
             data = ("render", np.array(r, dtype="object"))
