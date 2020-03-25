@@ -1,8 +1,0 @@
-av_draw_base.c drawtexcolsmp.c
-av_draw_alpha.c drawtexcolsmpalpha.c
-av_draw_multi.c drawmulti.c
-#av_draw_sky.c drawskylerp.c
-#
-# av_alpha_max.c drawtexcolsmshalphaplerp_max.c
-# av_SSR.c drawtexcolsmshplerp_SSR_water.c
-# av_SSR_metallic.c drawtexcolsmshplerp_SSR_metal.c
