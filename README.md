@@ -1,19 +1,16 @@
 # AXI Visualizer
 
-This branch is for the next generation Hierarchical Tiled Scanline rasterization algorithm. It should run much more efficiently on modern GPUs. Hierarchical Tiled Barycentric rasterization is commonly used in software rasterizers (ex. cuRE, CUDARaster), but combining the tiled aspect with scanline rendering has not been attempted before.
-
 AXI Visualizer is a complete software 3D graphics pipeline and engine written with Python and OpenCL.
 
-It uses scanline rasterization kernels which can be run on the CPU or the GPU compute units.
+It uses a Hierarchical Tiled Scanline rasterization algorithm which can be run on the CPU or the GPU compute units. Tiled Barycentric rasterization is commonly used in software rasterizers (ex. cuRE, CUDARaster), but combining the tiled aspect with scanline rendering has not been attempted before.
 
 See a [full feature list](https://agentxindustries.neocities.org/Visualizer/Features.html) and some [demo clips](http://axi.x10.mx/Visualizer).
 
-Main dependencies are Numpy, Numexpr, PIL, and PyOpenCL.
+Main dependencies are PyOpenCL, Numpy, and PIL.
 
-Currently the engine is used in AXI Animator, a simple and accessible rigging / skinning / posing tool.
+Currently the engine is used in [AXI Animator](http://axi.x10.mx/Visualizer/Animator.html) and [AXI Combat](http://axi.x10.mx/Visualizer/Combat.html).
 
 The '3xxx.py' files are main scripts which can be directly run.
-'AXI_Visualizer.py' can also be directly run.
 
 Here is a sample render showcasing many features of the Visualizer.
 ![Orchestra of Legends](https://agentxindustries.neocities.org/Backgrounds/Visualizerbg4.png)
